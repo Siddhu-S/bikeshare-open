@@ -58,6 +58,25 @@ def test_rolling_mean_excludes_today(feats):
         assert feats.set_index("dteday").cnt_roll_7[date] == pytest.approx(expected)
 
 
+def test_cnt_roll_28_matches_hand_computed():
+    """cnt_roll_28 on 2011-06-15 must equal mean of cnt for 2011-05-18 through 2011-06-14."""
+    feats_df = load_raw()
+
+    # Compute expected value manually from raw data
+    target_date = pd.Timestamp("2011-06-15")
+    start_date = target_date - pd.Timedelta(days=28)  # 2011-05-18
+    end_date = target_date - pd.Timedelta(days=1)     # 2011-06-14
+
+    expected_cnt_roll_28 = (feats_df[(feats_df.dteday >= start_date) &
+                                      (feats_df.dteday <= end_date)][TARGET].mean())
+
+    # Check that build_features produces the same value
+    feats = build_features(feats_df)
+    actual = feats.set_index("dteday").cnt_roll_28[target_date]
+
+    assert actual == pytest.approx(expected_cnt_roll_28)
+
+
 def test_no_missing_values(feats):
     assert feats[feature_columns(feats)].isna().sum().sum() == 0
 
