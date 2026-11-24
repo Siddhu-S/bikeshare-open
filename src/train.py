@@ -1,101 +1,93 @@
-"""Stage 3: train models and evaluate."""
+"""Stage 3: temporal split, fit, evaluate, write metrics.
+
+Two baselines and two models, on purpose.
+
+  baseline_mean         predict the 2011 average for every day
+  baseline_persistence  predict yesterday's count (cnt_lag_1)
+  ridge                 standardised linear model on the audited features
+  hgb                   gradient-boosted trees on the same features
+
+The mean baseline shows what "the distribution moved" costs. Persistence
+is the baseline that actually matters: ridge's features are dominated by
+lagged demand, so if it cannot beat "yesterday again" it has learned
+nothing worth reporting. The booster is there because it fails, and the
+reason it fails is the headline result.
+
+Run: python -m src.train
+"""
 import json
 
-import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.dummy import DummyRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from src.config import METRICS, PROCESSED, TARGET, TRAIN_END, VALID_END
+from src.features import feature_columns
+
+
+class PersistenceBaseline(BaseEstimator, RegressorMixin):
+    """Predict a single lagged column unchanged. Nothing is fit."""
+
+    def __init__(self, column: str = "cnt_lag_1"):
+        self.column = column
+
+    def fit(self, X, y=None):
+        if self.column not in X.columns:
+            raise ValueError(f"persistence baseline needs column {self.column!r}")
+        return self
+
+    def predict(self, X):
+        return X[self.column].to_numpy(dtype=float)
 
 
 MODELS = {
-    "baseline_mean": lambda y: np.full_like(y, float(np.mean(y))),
-    "baseline_persistence": lambda y: np.roll(y, 1),
-    "ridge": Ridge(alpha=1.0),
-    "hgb": GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42),
+    "baseline_mean": DummyRegressor(strategy="mean"),
+    "baseline_persistence": PersistenceBaseline("cnt_lag_1"),
+    "ridge": make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
+    "hgb": HistGradientBoostingRegressor(random_state=0, max_iter=300),
 }
 
 
 def temporal_split(df: pd.DataFrame):
-    """Split into train (2011), valid (H1 2012), test (H2 2012).
-
-    The function ensures no random split ever leaks forward-looking info.
-    """
-    df = df.copy()
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    df["year"] = df["dteday"].dt.year
-    df["month"] = df["dteday"].dt.month
-
-    train = df[df.year == 2011].copy()
-    valid = df[(df.year == 2012) & (df.month <= 6)]
-    test = df[(df.year == 2012) & (df.month > 6)]
-
-    return train.reset_index(drop=True), valid.reset_index(drop=True), test.reset_index(drop=True)
+    """Split by date, never at random. A random split on a time series
+    puts tomorrow in train and today in test."""
+    train = df[df.dteday <= TRAIN_END]
+    valid = df[(df.dteday > TRAIN_END) & (df.dteday <= VALID_END)]
+    test = df[df.dteday > VALID_END]
+    return train, valid, test
 
 
-from src.features import feature_columns
-
-
-def evaluate(df: pd.DataFrame):
-    """Train all models on train+valid and report on valid and test."""
+def fit_and_score() -> dict:
+    df = pd.read_parquet(PROCESSED)
     cols = feature_columns(df)
-
     train, valid, test = temporal_split(df)
-    train_full = pd.concat([train, valid], ignore_index=True)
 
-    # Train on train + valid, evaluate on both valid and test
-    y_train = train_full[TARGET].astype(float)
-    X_train = train_full[cols]
-    y_valid = valid[TARGET].astype(float)
-    y_test = test[TARGET].astype(float)
-    X_valid = valid[cols]
-    X_test = test[cols]
-
-    results = {}
-
+    results = {
+        "n_features": len(cols),
+        "features": cols,
+        "n_train": len(train),
+        "n_valid": len(valid),
+        "n_test": len(test),
+    }
     for name, model in MODELS.items():
-        if callable(model):
-            # Baseline models: predict on train_full, then evaluate each set separately
-            preds_full = model(y_train)
-
-            # For baseline_mean: it's a constant, so same prediction everywhere
-            if name == "baseline_mean":
-                y_mean = float(np.mean(y_train))
-                results[name] = {
-                    "valid": {"r2": r2_score(y_valid, np.full_like(y_valid, y_mean)),
-                              "mae": mean_absolute_error(y_valid, np.full_like(y_valid, y_mean))},
-                    "test": {"r2": r2_score(y_test, np.full_like(y_test, y_mean)),
-                             "mae": mean_absolute_error(y_test, np.full_like(y_test, y_mean))}
-                }
-            # For baseline_persistence: split the predictions by valid/test length
-            else:
-                n_valid = len(y_valid)
-                valid_preds = preds_full[:n_valid]
-                test_preds = preds_full[n_valid:]
-                results[name] = {
-                    "valid": {"r2": r2_score(y_valid, valid_preds),
-                              "mae": mean_absolute_error(y_valid, valid_preds)},
-                    "test": {"r2": r2_score(y_test, test_preds),
-                             "mae": mean_absolute_error(y_test, test_preds)}
-                }
-        else:
-            # Ridge needs both X and y
-            model.fit(X_train, y_train)
-            valid_preds = model.predict(X_valid)
-            test_preds = model.predict(X_test)
-            results[name] = {
-                "valid": {"r2": r2_score(y_valid, valid_preds), "mae": mean_absolute_error(y_valid, valid_preds)},
-                "test": {"r2": r2_score(y_test, test_preds), "mae": mean_absolute_error(y_test, test_preds)}
+        model.fit(train[cols], train[TARGET])
+        results[name] = {
+            split: {
+                "r2": round(float(r2_score(part[TARGET], model.predict(part[cols]))), 4),
+                "mae": round(float(mean_absolute_error(part[TARGET], model.predict(part[cols]))), 1),
             }
-
+            for split, part in [("valid", valid), ("test", test)]
+        }
     return results
 
 
 if __name__ == "__main__":
-    data = pd.read_parquet(PROCESSED)
-    metrics = evaluate(data)
-
-    print(json.dumps(metrics, indent=2))
-
+    res = fit_and_score()
+    METRICS.parent.mkdir(parents=True, exist_ok=True)
+    METRICS.write_text(json.dumps(res, indent=2))
+    print(json.dumps({k: v for k, v in res.items() if k != "features"}, indent=2))
