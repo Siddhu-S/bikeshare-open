@@ -28,6 +28,7 @@ TARGET = "cnt"
 #    casual + registered == cnt exactly, on every row. A model handed these
 #    scores R^2 ~ 1.0 and has learned addition. At prediction time you would
 #    not know either input: they are components of the thing being predicted.
+# This should break the test
 LEAKAGE_COLS = {"casual", "registered", "cnt"}
 
 # 2. Time indexes: not leakage, but a bad bet. A tree splits on "after date
@@ -43,7 +44,7 @@ TIME_INDEX_COLS = {"instant", "yr", "days_since_2011"}
 UNVERIFIED_COLS = {"cnt_2d_bfr"}
 
 # What feature_columns() and the tests actually enforce.
-FORBIDDEN = LEAKAGE_COLS | TIME_INDEX_COLS | UNVERIFIED_COLS
+FORBIDDEN = LEAKAGE_COLS | TIME_INDEX_COLS | UNVERIFIED_COLS  # broken for testing
 
 # Temporal split: train on 2011, validate on H1 2012, test on H2 2012.
 TRAIN_END = "2011-12-31"

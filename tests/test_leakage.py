@@ -28,6 +28,7 @@ def test_no_forbidden_features(feats):
     catches is someone editing feature_columns() or FORBIDDEN -- which is
     exactly the fault the Step 7 hook demonstrates."""
     cols = set(feature_columns(feats))
+    cols = set(feature_columns(feats))
     assert not (cols & FORBIDDEN), f"forbidden columns in feature set: {cols & FORBIDDEN}"
 
 
