@@ -91,10 +91,3 @@ def test_encode_weather_raises_on_unknown_label():
     silently dropped by dropna()."""
     with pytest.raises(ValueError, match="unmapped"):
         encode_weather(pd.Series(["GOOD", "SNOW"]))
-
-
-def test_encode_weather_raises_on_unknown_label():
-    """An unseen weather label must fail loudly, not become NaN and be
-    silently dropped by dropna()."""
-    with pytest.raises(ValueError, match="unmapped"):
-        encode_weather(pd.Series(["GOOD", "SNOW"]))
