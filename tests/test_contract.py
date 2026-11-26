@@ -56,3 +56,23 @@ def test_persistence_baseline_is_reported():
     """The baseline that matters for a lag-driven model is 'yesterday again'.
     It must be in the comparison, whatever its score."""
     assert "baseline_persistence" in MODELS
+
+
+def test_raw_data_is_unmodified():
+    """Guard for the fault the PostToolUse hook cannot see: a Bash cp into
+    data/raw/. Any change to the raw file, by any route, fails here."""
+    import hashlib
+    from src.config import ROOT
+    digest = hashlib.sha256((ROOT / "data" / "raw" / "bike_daily.csv").read_bytes()).hexdigest()
+    assert digest == "a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc"
+
+
+def test_every_raw_column_is_classified():
+    """A new column in the raw CSV must be classified before it can reach a
+    model: it must be FORBIDDEN, a feature, or dteday."""
+    from src.config import FORBIDDEN, ROOT
+    from src.features import build_features, feature_columns
+    from src.ingest import load_raw
+    raw_cols = set(pd.read_csv(ROOT / "data" / "raw" / "bike_daily.csv", nrows=1).columns)
+    classified = set(FORBIDDEN) | set(feature_columns(build_features(load_raw()))) | {"dteday"}
+    assert not (raw_cols - classified), f"unclassified raw columns: {sorted(raw_cols - classified)}"

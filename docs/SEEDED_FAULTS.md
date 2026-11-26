@@ -256,3 +256,25 @@ FAILED tests/test_leakage.py::test_encode_weather_raises_on_unknown_label - F...
 ```
 
 Turns to fix: 1
+
+## Fault 4: Bash cp into data/raw/ (invisible to the PostToolUse hook)
+
+**What I did.** Made a copy of the raw CSV with cnt on 2012-07-04 raised by 1000 (to 8403), then overwrote data/raw/bike_daily.csv with `cp`. I ran the cp from a terminal because the agent's request timed out; a Bash-tool cp inside Claude Code is equally invisible to the guards.
+
+**Why nothing stopped it.** The PostToolUse hook matches only Edit|Write on src/*.py, and the deny rules cover only Write(./data/raw/**) and Edit(./data/raw/**). A Bash cp is neither, so no hook ran and no rule blocked it.
+
+Hash before: `a6bed1577f6e4de56dcfae6d8315985073cc0ad3446c8c99ed60c86a0b5ad9dc`
+Hash after:  `9526d05eb09886704cf9d074c57006579ec2a81368b6aaae21ecd1611929cec4`
+
+**What happened next.** `make test` did fail, but only by luck: I changed cnt without changing casual/registered, so the identity check broke. A tamper that kept casual + registered == cnt, or that changed temp, would have passed every test.
+
+```
+E             Use -v to get more diff.all
+
+tests/test_leakage.py:22: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_leakage_identity_holds - assert np.False_
+1 failed, 15 passed in 2.31s
+```
+
+**What would catch it.** A test that pins the raw file's SHA-256, which catches the change regardless of how the file was written. I added `test_raw_data_is_unmodified` to tests/test_contract.py. Other options are a deny rule on Bash commands that touch data/raw/ (brittle, because there are many ways to write a file) or a PreToolUse hook on Bash. I restored the file with `git checkout`; the hash is back to a6bed1577f6e4de5....

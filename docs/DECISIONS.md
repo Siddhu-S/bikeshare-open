@@ -11,3 +11,5 @@ Agents append here via the `/new-feature` skill; you append here by hand.
 
 - Added cnt_roll_28, which is the mean of count over the 28 days before d. It is valid since it is available at prediction time because every input is dated before d. To do this I had to raise LAG_WARMUP to 28 and change cnt_lag_7 and cnt_roll_7 to a hard coded 7 so they did not also become 28-day features.
 - It beat validation too so I kept cnt_roll_28. The validation R^2 rose from 0.6462 to 0.6839 for ridge and from 0.1929 to 0.2415 for hgb which exceeds the noise threshold.
+- 2026-11-25: Classified six raw columns (season, mnth, holiday, weekday, workday, weather) as RAW_SOURCE_COLS inside FORBIDDEN. Each is replaced by an encoded feature or redundant with month. Feature set and metrics unchanged. Added test_every_raw_column_is_classified so any new raw column fails until it is classified.
+- 2026-11-25: Added test_raw_data_is_unmodified (SHA-256 of data/raw/bike_daily.csv) as a guard for the Bash cp fault that the PostToolUse hook cannot see.

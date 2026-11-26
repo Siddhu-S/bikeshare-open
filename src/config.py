@@ -44,7 +44,9 @@ TIME_INDEX_COLS = {"instant", "yr", "days_since_2011"}
 UNVERIFIED_COLS = {"cnt_2d_bfr"}
 
 # What feature_columns() and the tests actually enforce.
-FORBIDDEN = LEAKAGE_COLS | TIME_INDEX_COLS | UNVERIFIED_COLS
+# Raw source columns replaced by encoded features (or redundant: season).
+RAW_SOURCE_COLS = {"season", "mnth", "holiday", "weekday", "workday", "weather"}
+FORBIDDEN = LEAKAGE_COLS | TIME_INDEX_COLS | UNVERIFIED_COLS | RAW_SOURCE_COLS
 
 # Temporal split: train on 2011, validate on H1 2012, test on H2 2012.
 TRAIN_END = "2011-12-31"
