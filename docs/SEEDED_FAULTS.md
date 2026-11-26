@@ -192,3 +192,67 @@ FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.fl...
 ```
 
 Turns to fix: 1. The agent first chased a stale "# broken for testing" comment in src/config.py before reading the failing test and restoring .shift(1).
+
+## Fault (c): raise removed from encode_weather
+
+Before this fault, no test exercised encode_weather. Removing the raise left all 15 tests green and the hook silent, because the real data contains only GOOD, MISTY, and BAD. I added test_encode_weather_raises_on_unknown_label (its own commit) and then reseeded the fault.
+
+When asked through /seed-fault, the agent over-edited: it deleted the return line as well, so encode_weather returned None and five tests failed. I reverted that and seeded the two intended lines by hand. The hook stderr below is from running the hook on that edit.
+
+### Exact change
+```diff
+diff --git a/src/features.py b/src/features.py
+index 5756750..dd25e0f 100644
+--- a/src/features.py
++++ b/src/features.py
+@@ -28,8 +28,6 @@ def encode_weather(series: pd.Series) -> pd.Series:
+     """
+     known = series.dropna()
+     unknown = set(known.unique()) - set(WEATHER_ORDER)
+-    if unknown:
+-        raise ValueError(f"unmapped weather labels: {sorted(unknown)}")
+     return series.map(WEATHER_ORDER).astype(float)
+ 
+ 
+```
+
+### Red test output
+```
+............F...                                                         [100%]
+=================================== FAILURES ===================================
+_________________ test_encode_weather_raises_on_unknown_label __________________
+
+    def test_encode_weather_raises_on_unknown_label():
+        """An unseen weather label must fail loudly, not become NaN and be
+        silently dropped by dropna()."""
+>       with pytest.raises(ValueError, match="unmapped"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_leakage.py:99: Failed
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_encode_weather_raises_on_unknown_label - F...
+1 failed, 15 passed in 1.25s
+```
+
+### Hook stderr
+```
+Leakage tests failed after editing /Users/siddhusarvepally/Downloads/bikeshare-open/src/features.py:
+........F                                                                [100%]
+=================================== FAILURES ===================================
+_________________ test_encode_weather_raises_on_unknown_label __________________
+
+    def test_encode_weather_raises_on_unknown_label():
+        """An unseen weather label must fail loudly, not become NaN and be
+        silently dropped by dropna()."""
+>       with pytest.raises(ValueError, match="unmapped"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/test_leakage.py:99: Failed
+=========================== short test summary info ============================
+FAILED tests/test_leakage.py::test_encode_weather_raises_on_unknown_label - F...
+1 failed, 8 passed in 0.24s
+```
+
+Turns to fix: 1
